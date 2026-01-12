@@ -1,0 +1,129 @@
+import { logger } from '../utils/logger.js';
+
+/**
+ * 处理 webhook 数据
+ * 此函数可以扩展以处理不同的 webhook 事件
+ * 并与通知服务（微信、H5 等）集成
+ */
+export const processWebhook = async (webhookData, headers) => {
+  const eventType = headers['x-gitlab-event'] || 'unknown';
+  
+  logger.info(`Processing webhook event: ${eventType}`);
+
+  // 提取通用信息
+  const eventInfo = {
+    eventType,
+    project: webhookData.project?.name || webhookData.repository?.name,
+    branch: webhookData.ref,
+    commit: webhookData.commits?.[0] || webhookData.object_attributes,
+    user: webhookData.user?.name || webhookData.user_username,
+    timestamp: new Date().toISOString(),
+  };
+
+  // 处理不同的事件类型
+  switch (eventType) {
+    case 'Push Hook':
+      await handlePushEvent(webhookData, eventInfo);
+      break;
+    
+    case 'Merge Request Hook':
+      await handleMergeRequestEvent(webhookData, eventInfo);
+      break;
+    
+    case 'Issue Hook':
+      await handleIssueEvent(webhookData, eventInfo);
+      break;
+    
+    case 'Pipeline Hook':
+      await handlePipelineEvent(webhookData, eventInfo);
+      break;
+    
+    default:
+      logger.info(`Unhandled event type: ${eventType}`);
+      await handleGenericEvent(webhookData, eventInfo);
+  }
+
+  // TODO: 后续扩展点
+  // - 发送微信服务号通知
+  // - 发送 H5 通知
+  // - 发送邮件通知
+  // - 发送钉钉/企业微信通知
+  // - 触发其他自动化流程
+};
+
+/**
+ * 处理推送事件
+ */
+const handlePushEvent = async (webhookData, eventInfo) => {
+  logger.info('Processing push event', {
+    project: eventInfo.project,
+    branch: eventInfo.branch,
+    commits: webhookData.commits?.length || 0,
+    user: eventInfo.user,
+  });
+
+  // 可以在这里添加具体的处理逻辑
+  // 例如：通知相关人员代码已推送
+};
+
+/**
+ * 处理合并请求事件
+ */
+const handleMergeRequestEvent = async (webhookData, eventInfo) => {
+  const mrData = webhookData.object_attributes;
+  logger.info('Processing merge request event', {
+    project: eventInfo.project,
+    action: mrData?.action,
+    sourceBranch: mrData?.source_branch,
+    targetBranch: mrData?.target_branch,
+    title: mrData?.title,
+    user: eventInfo.user,
+  });
+
+  // 可以在这里添加具体的处理逻辑
+  // 例如：通知相关人员有新的合并请求
+};
+
+/**
+ * 处理 Issue 事件
+ */
+const handleIssueEvent = async (webhookData, eventInfo) => {
+  const issueData = webhookData.object_attributes;
+  logger.info('Processing issue event', {
+    project: eventInfo.project,
+    action: issueData?.action,
+    title: issueData?.title,
+    state: issueData?.state,
+    user: eventInfo.user,
+  });
+
+  // 可以在这里添加具体的处理逻辑
+  // 例如：通知相关人员有新的 issue
+};
+
+/**
+ * 处理流水线事件
+ */
+const handlePipelineEvent = async (webhookData, eventInfo) => {
+  const pipelineData = webhookData.object_attributes;
+  logger.info('Processing pipeline event', {
+    project: eventInfo.project,
+    branch: pipelineData?.ref,
+    status: pipelineData?.status,
+    stage: pipelineData?.stage,
+    user: eventInfo.user,
+  });
+
+  // 可以在这里添加具体的处理逻辑
+  // 例如：通知相关人员 CI/CD 状态
+};
+
+/**
+ * 处理通用/未知事件
+ */
+const handleGenericEvent = async (webhookData, eventInfo) => {
+  logger.info('Processing generic event', eventInfo);
+  
+  // 保存原始数据，便于后续分析
+  // 可以存储到数据库或文件系统
+};
