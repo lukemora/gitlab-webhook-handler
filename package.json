@@ -8,7 +8,10 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "build": "node build.js",
-    "build:exe": "npm run build && cd dist && pkg package.json --targets node18-linux-x64 --output ../dist/gitlab-webhook-handler"
+    "build:exe": "npm run build && cd dist && pkg package.json --targets node18-linux-x64 --output ../dist/gitlab-webhook-handler --no-warnings",
+    "build:extension": "node build-extension.js",
+    "package:extension": "node package-extension-crx.js",
+    "test:webhook": "node test/test-webhook.js"
   },
   "keywords": [
     "gitlab",
@@ -24,7 +27,8 @@
   "devDependencies": {
     "nodemon": "^3.0.2",
     "pkg": "^5.8.1",
-    "esbuild": "^0.19.8"
+    "esbuild": "^0.19.8",
+    "archiver": "^7.0.1"
   },
   "pkg": {
     "scripts": [

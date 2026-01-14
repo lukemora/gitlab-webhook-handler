@@ -1,6 +1,6 @@
 # GitLab Webhook Handler
 
-一个用于接收和处理 GitLab webhook 的 Node.js 服务。
+一个用于接收和处理 GitLab webhook 的 Node.js 服务，支持实时推送通知到浏览器插件和企业微信。
 
 ## 功能特性
 
@@ -8,272 +8,350 @@
 - ✅ 支持多种 GitLab 事件类型（Push、Merge Request、Issue、Pipeline 等）
 - ✅ 可选的 webhook 安全验证（Secret Token）
 - ✅ 结构化日志记录
-- ✅ 易于扩展的通知机制（预留微信服务号/H5 等接口）
+- ✅ **浏览器插件支持** - 实时推送通知到浏览器
+- ✅ **企业微信通知** - 支持企业微信机器人推送
+- ✅ 易于扩展的通知机制（可扩展其他通知渠道）
 
-## 快速开始
-
-### 安装依赖
-
-```bash
-npm install
-```
-
-### 打包成可执行文件（用于 CentOS 7 服务器）
-
-项目支持打包成 Linux 可执行文件，方便在服务器上直接运行，无需安装 Node.js 环境。
-
-#### 1. 安装打包依赖
-
-```bash
-npm install
-```
-
-#### 2. 执行打包
-
-```bash
-npm run build:exe
-```
-
-打包完成后，会在 `dist` 目录下生成 `gitlab-webhook-handler` 可执行文件。
-
-#### 3. 部署到服务器
-
-将生成的可执行文件上传到 CentOS 7 服务器：
-
-```bash
-# 上传文件到服务器
-scp dist/gitlab-webhook-handler user@your-server:/path/to/deploy/
-
-# 在服务器上设置执行权限
-chmod +x /path/to/deploy/gitlab-webhook-handler
-
-# 运行可执行文件
-/path/to/deploy/gitlab-webhook-handler
-```
-
-#### 4. 配置环境变量
-
-可执行文件仍然需要环境变量配置。你可以：
-
-- 在运行前设置环境变量：
-  ```bash
-  export PORT=33333
-  export WEBHOOK_SECRET_TOKEN=your-secret-token
-  ./gitlab-webhook-handler
-  ```
-
-- 或者创建 `.env` 文件（需要将 `env.example` 也上传到服务器）：
-  ```bash
-  cp env.example .env
-  # 编辑 .env 文件
-  ./gitlab-webhook-handler
-  ```
-
-#### 5. 使用 systemd 管理服务（可选）
-
-创建 systemd 服务文件 `/etc/systemd/system/gitlab-webhook-handler.service`：
-
-```ini
-[Unit]
-Description=GitLab Webhook Handler
-After=network.target
-
-[Service]
-Type=simple
-User=your-user
-WorkingDirectory=/path/to/deploy
-ExecStart=/path/to/deploy/gitlab-webhook-handler
-Restart=always
-RestartSec=10
-Environment="PORT=33333"
-Environment="WEBHOOK_SECRET_TOKEN=your-secret-token"
-
-[Install]
-WantedBy=multi-user.target
-```
-
-然后启动服务：
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable gitlab-webhook-handler
-sudo systemctl start gitlab-webhook-handler
-sudo systemctl status gitlab-webhook-handler
-```
-
-### 配置环境变量
-
-创建 `.env` 文件（参考 `.env.example`）：
-
-```env
-PORT=33333
-# HOST: 如果不设置，将自动使用本机 IP 地址
-# HOST=0.0.0.0
-WEBHOOK_SECRET_TOKEN=your-secret-token-here
-LOG_LEVEL=info
-```
-
-### 启动服务
-
-```bash
-# 生产环境
-npm start
-
-# 开发环境（自动重启）
-npm run dev
-```
-
-服务启动后，会在控制台显示 webhook URL。
-
-## GitLab Webhook 配置
-
-### Webhook URL
-
-启动服务后，GitLab webhook 应该配置的 URL 为：
+## 整体工作流程
 
 ```
-http://your-server-ip:33333/webhook/gitlab
+┌─────────────┐
+│   GitLab    │
+│   项目仓库   │
+└──────┬──────┘
+       │ 触发事件（Push/MR/Issue/Pipeline等）
+       │ POST /webhook/gitlab
+       ▼
+┌─────────────────────────┐
+│  Webhook Handler Server  │
+│  (Node.js Express)       │
+│                          │
+│  1. 接收并验证 webhook    │
+│  2. 解析事件类型和数据    │
+│  3. 处理业务逻辑          │
+│  4. 分发通知              │
+└──────┬──────────┬────────┘
+       │          │
+       │          │
+       ▼          ▼
+┌─────────────┐  ┌──────────────┐
+│ 浏览器插件   │  │  企业微信     │
+│ (SSE连接)   │  │  (Webhook)   │
+│             │  │              │
+│ • 实时通知   │  │ • 群消息推送  │
+│ • 原生提醒   │  │              │
+└─────────────┘  └──────────────┘
 ```
 
-或者如果服务部署在本地开发环境：
+### 详细流程说明
 
-```
-http://localhost:33333/webhook/gitlab
-```
+1. **GitLab 触发事件**：当 GitLab 项目中发生事件（如代码推送、合并请求、Issue 创建等）时，GitLab 会向配置的 webhook URL 发送 POST 请求。
 
-如果使用内网穿透工具（如 ngrok），URL 格式为：
+2. **服务器接收处理**：
+   - `webhookHandler.js` 接收并验证请求（可选的安全令牌验证）
+   - `webhookProcessor.js` 解析事件类型，提取关键信息（项目名、分支、用户等）
+   - 根据事件类型调用相应的处理函数
 
-```
-https://your-ngrok-domain.ngrok.io/webhook/gitlab
-```
+3. **通知分发**：
+   - **浏览器插件通知**：通过 Server-Sent Events (SSE) 实时推送给已连接的浏览器插件客户端
+   - **企业微信通知**：通过企业微信机器人 webhook 发送群消息（可选）
 
-### 在 GitLab 中配置 Webhook
+4. **客户端接收**：
+   - 浏览器插件通过 SSE 长连接接收通知，显示浏览器原生通知
+   - 企业微信群收到机器人消息
 
-1. 进入你的 GitLab 项目
-2. 导航到 **Settings** → **Webhooks**
-3. 填写以下信息：
-   - **URL**: `http://your-server-ip:33333/webhook/gitlab`
-   - **Secret token** (可选): 如果设置了 `WEBHOOK_SECRET_TOKEN` 环境变量，在这里填写相同的值
-   - **Trigger**: 选择需要触发的事件类型
-     - Push events
-     - Merge request events
-     - Issues events
-     - Pipeline events
-     - 等等...
-4. 点击 **Add webhook**
+## 使用方法
 
-### 测试 Webhook
+### 一、服务器端部署
 
-配置完成后，可以点击 **Test** 按钮测试 webhook，或者执行相应的 Git 操作（如 push 代码）来触发 webhook。
+#### 方式一：直接运行（开发/测试环境）
+
+1. **安装依赖**
+   ```bash
+   npm install
+   ```
+
+2. **配置环境变量**
+   
+   创建 `.env` 文件（参考 `env.example`）：
+   ```env
+   PORT=33333
+   # HOST: 如果不设置，将自动使用本机 IP 地址
+   # HOST=0.0.0.0
+   WEBHOOK_SECRET_TOKEN=your-secret-token-here
+   LOG_LEVEL=info
+   # 企业微信通知（可选）
+   # WECHAT_WORK_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
+   ```
+
+3. **启动服务**
+   ```bash
+   # 生产环境
+   npm start
+   
+   # 开发环境（自动重启）
+   npm run dev
+   ```
+
+   服务启动后，控制台会显示：
+   ```
+   Server is running on http://192.168.1.100:33333
+   GitLab webhook URL: http://192.168.1.100:33333/webhook/gitlab
+   ```
+
+#### 方式二：打包成可执行文件（生产环境推荐）
+
+适用于 CentOS 等服务器环境，无需安装 Node.js。
+
+1. **打包**
+   ```bash
+   npm install
+   npm run build:exe
+   ```
+   打包完成后，会在 `dist` 目录下生成 `gitlab-webhook-handler` 可执行文件。
+
+2. **部署到服务器**
+   ```bash
+   # 上传文件
+   scp dist/gitlab-webhook-handler user@your-server:/path/to/deploy/
+   
+   # 设置执行权限
+   chmod +x /path/to/deploy/gitlab-webhook-handler
+   ```
+
+3. **配置环境变量**
+   
+   创建 `.env` 文件或使用环境变量：
+   ```bash
+   export PORT=33333
+   export WEBHOOK_SECRET_TOKEN=your-secret-token
+   ./gitlab-webhook-handler
+   ```
+
+4. **使用 systemd 管理服务（推荐）**
+   
+   创建 `/etc/systemd/system/gitlab-webhook-handler.service`：
+   ```ini
+   [Unit]
+   Description=GitLab Webhook Handler
+   After=network.target
+   
+   [Service]
+   Type=simple
+   User=your-user
+   WorkingDirectory=/path/to/deploy
+   ExecStart=/path/to/deploy/gitlab-webhook-handler
+   Restart=always
+   RestartSec=10
+   Environment="PORT=33333"
+   Environment="WEBHOOK_SECRET_TOKEN=your-secret-token"
+   
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   
+   启动服务：
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable gitlab-webhook-handler
+   sudo systemctl start gitlab-webhook-handler
+   sudo systemctl status gitlab-webhook-handler
+   ```
+
+### 二、配置 GitLab Webhook
+
+1. **获取 Webhook URL**
+   
+   根据服务器部署情况，webhook URL 格式为：
+   - 本地开发：`http://localhost:33333/webhook/gitlab`
+   - 服务器部署：`http://your-server-ip:33333/webhook/gitlab`
+
+2. **在 GitLab 中配置**
+   
+   - 进入项目 → **Settings** → **Webhooks**
+   - 填写 **URL**：`http://your-server-ip:33333/webhook/gitlab`
+   - 填写 **Secret token**（如果配置了 `WEBHOOK_SECRET_TOKEN`）
+   - 选择触发事件：
+     - ✅ Push events
+     - ✅ Merge request events
+     - ✅ Issues events
+     - ✅ Pipeline events
+   - 点击 **Add webhook**
+
+3. **测试 Webhook**
+   
+   点击 **Test** 按钮或执行 Git 操作（如 push 代码）来触发测试。
+
+### 三、浏览器插件使用（可选）
+
+浏览器插件用于接收实时通知，显示浏览器原生提醒。
+
+1. **加载插件**
+   - 打开 Chrome/Edge 浏览器
+   - 进入 `chrome://extensions/` 或 `edge://extensions/`
+   - 开启"开发者模式"
+   - 点击"加载已解压的扩展程序"
+   - 选择项目的 `browser-extension` 目录
+
+2. **配置插件**
+   - 点击插件图标，打开配置页面
+   - 设置服务器地址：`http://your-server-ip:33333`
+   - 设置用户ID和用户名（用于标识身份）
+   - 保存配置
+
+3. **开始接收通知**
+   - 插件会自动连接到服务器（通过 SSE）
+   - 当 GitLab 事件触发时，浏览器会显示原生通知
+   - 可以点击通知查看详细信息
+
+详细说明请查看 [browser-extension/README.md](./browser-extension/README.md)
+
+### 四、企业微信通知（可选）
+
+1. **获取企业微信机器人 Webhook URL**
+   - 在企业微信群中添加机器人
+   - 获取 webhook URL，格式：`https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx`
+
+2. **配置环境变量**
+   ```env
+   WECHAT_WORK_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
+   ```
+
+3. **重启服务**
+   - 配置后重启服务，企业微信通知会自动生效
+
+## 核心组件说明
+
+### 服务器端组件
+
+- **`src/index.js`** - Express 服务器入口，定义路由和中间件
+- **`src/handlers/webhookHandler.js`** - 接收 GitLab webhook 请求，验证并转发
+- **`src/services/webhookProcessor.js`** - 处理不同事件类型，提取关键信息
+- **`src/services/clientManager.js`** - 管理浏览器插件客户端连接（SSE）
+- **`src/services/browserNotifier.js`** - 向浏览器插件发送通知
+- **`src/services/wechatWorkNotifier.js`** - 向企业微信发送通知
+
+### 浏览器插件组件
+
+- **`browser-extension/background.js`** - 后台脚本，管理 SSE 连接
+- **`browser-extension/popup.js`** - 弹窗界面，显示连接状态
+- **`browser-extension/options.js`** - 配置页面，设置服务器地址和用户信息
+
+## 支持的事件类型
+
+当前支持以下 GitLab webhook 事件：
+
+- **Push Hook** - 代码推送事件：当代码推送到仓库时触发
+- **Merge Request Hook** - 合并请求事件：当创建、更新、合并 MR 时触发
+- **Issue Hook** - Issue 事件：当创建、更新、关闭 Issue 时触发
+- **Pipeline Hook** - CI/CD 流水线事件：当 Pipeline 状态变化时触发
+- **其他事件** - 通用处理：其他未明确处理的事件类型
+
+每种事件都会提取关键信息（项目名、分支、用户、时间等），并发送给配置的通知渠道。
 
 ## 项目结构
 
 ```
 gitlab-webhook-handler/
 ├── src/
-│   ├── index.js                 # 主服务器入口
+│   ├── index.js                    # Express 服务器入口
 │   ├── handlers/
-│   │   └── webhookHandler.js    # Webhook 请求处理器
+│   │   └── webhookHandler.js       # Webhook 请求处理器
 │   ├── services/
-│   │   └── webhookProcessor.js  # Webhook 业务逻辑处理
+│   │   ├── webhookProcessor.js     # 事件处理和业务逻辑
+│   │   ├── browserNotifier.js      # 浏览器插件通知服务
+│   │   ├── wechatWorkNotifier.js   # 企业微信通知服务
+│   │   └── clientManager.js        # 客户端连接管理（SSE）
 │   └── utils/
-│       └── logger.js            # 日志工具
-├── .env                         # 环境变量（需要创建）
-├── .gitignore
+│       ├── logger.js               # 日志工具
+│       └── network.js              # 网络工具
+├── browser-extension/              # 浏览器插件
+│   ├── manifest.json               # 插件配置文件
+│   ├── background.js               # 后台脚本（SSE 连接管理）
+│   ├── popup.html/js               # 弹窗界面
+│   ├── options.html/js             # 配置页面
+│   └── icons/                      # 插件图标
+├── .env                            # 环境变量配置（需创建）
 ├── package.json
 └── README.md
 ```
 
-## 支持的事件类型
-
-当前支持以下 GitLab webhook 事件：
-
-- **Push Hook**: 代码推送事件
-- **Merge Request Hook**: 合并请求事件
-- **Issue Hook**: Issue 事件
-- **Pipeline Hook**: CI/CD 流水线事件
-- **其他事件**: 通用处理
-
 ## 扩展开发
 
-### 添加通知功能
+### 添加新的通知渠道
 
-在 `src/services/webhookProcessor.js` 中的各个事件处理函数里，可以添加通知逻辑：
+在 `src/services/webhookProcessor.js` 中，可以添加新的通知逻辑：
 
 ```javascript
-// 示例：发送微信服务号通知
-const handlePushEvent = async (webhookData, eventInfo) => {
-  // 处理逻辑...
+// 示例：添加钉钉通知
+import { notifyDingTalk } from './dingTalkNotifier.js';
+
+export const processWebhook = async (webhookData, headers) => {
+  // ... 现有处理逻辑 ...
   
-  // 发送微信通知
-  await sendWeChatNotification({
-    title: '代码推送通知',
-    content: `${eventInfo.user} 推送了代码到 ${eventInfo.branch}`,
-    recipients: ['user1', 'user2'],
-  });
+  // 添加钉钉通知
+  if (process.env.DINGTALK_WEBHOOK_URL) {
+    try {
+      await notifyDingTalk(webhookData, eventInfo);
+    } catch (error) {
+      logger.error('发送钉钉通知失败', error);
+    }
+  }
 };
 ```
 
-### 添加其他服务集成
+### 自定义事件处理逻辑
 
-可以创建新的服务模块，例如：
+在 `webhookProcessor.js` 中的各个事件处理函数里，可以添加自定义逻辑：
 
-- `src/services/wechatService.js` - 微信服务号集成
-- `src/services/notificationService.js` - 统一通知服务
-- `src/services/databaseService.js` - 数据存储服务
+```javascript
+const handlePushEvent = async (webhookData, eventInfo) => {
+  // 自定义处理逻辑
+  // 例如：检查特定分支、触发部署、发送特定通知等
+};
+```
 
 ## API 端点
 
-### POST /webhook/gitlab
+### 核心端点
 
-接收 GitLab webhook 请求。
+| 端点 | 方法 | 说明 | 用途 |
+|------|------|------|------|
+| `/webhook/gitlab` | POST | 接收 GitLab webhook | GitLab 配置此 URL |
+| `/health` | GET | 健康检查 | 服务监控 |
+| `/events` | GET | SSE 事件流 | 浏览器插件连接 |
+| `/api/clients/register` | POST | 注册客户端 | 浏览器插件注册 |
+| `/api/clients` | GET | 获取客户端列表 | 管理查看 |
 
-**请求头**:
-- `X-Gitlab-Event`: 事件类型
-- `X-Gitlab-Token`: 安全令牌（如果配置了）
-
-**响应**:
-```json
-{
-  "success": true,
-  "message": "Webhook processed successfully",
-  "timestamp": "2024-01-08T10:00:00.000Z"
-}
+**示例：健康检查**
+```bash
+curl http://localhost:33333/health
+# 响应: {"status":"ok","timestamp":"2024-01-08T10:00:00.000Z"}
 ```
 
-### GET /health
-
-健康检查端点。
-
-**响应**:
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-01-08T10:00:00.000Z"
-}
+**示例：查看已连接客户端**
+```bash
+curl http://localhost:33333/api/clients
+# 响应: {"clients":[...],"stats":{...}}
 ```
 
-## 日志
+## 配置说明
 
-服务会记录以下信息：
+### 环境变量
 
-- Webhook 接收日志
-- 事件处理日志
-- 错误日志
+| 变量名 | 说明 | 必填 | 默认值 |
+|--------|------|------|--------|
+| `PORT` | 服务端口 | 否 | `33333` |
+| `HOST` | 监听地址 | 否 | `0.0.0.0`（自动使用本机 IP） |
+| `WEBHOOK_SECRET_TOKEN` | GitLab webhook 安全令牌 | 否 | 无（不验证） |
+| `LOG_LEVEL` | 日志级别 | 否 | `info` |
+| `WECHAT_WORK_WEBHOOK_URL` | 企业微信机器人 URL | 否 | 无（不发送） |
 
-日志级别可通过 `LOG_LEVEL` 环境变量配置：
-- `ERROR`: 仅错误
-- `WARN`: 警告及以上
-- `INFO`: 信息及以上（默认）
-- `DEBUG`: 所有日志
+### 日志级别
 
-## 安全建议
+- `ERROR` - 仅错误日志
+- `WARN` - 警告及以上
+- `INFO` - 信息及以上（默认）
+- `DEBUG` - 所有日志
 
-1. **使用 Secret Token**: 在 GitLab 和服务器中都配置相同的 Secret Token
-2. **使用 HTTPS**: 生产环境建议使用 HTTPS
-3. **防火墙配置**: 只允许 GitLab IP 访问 webhook 端点
-4. **环境变量**: 不要将敏感信息提交到代码仓库
-
-## 许可证
-
-MIT
+服务会记录：webhook 接收、事件处理、客户端连接、错误等信息。

@@ -1,4 +1,6 @@
 import { logger } from '../utils/logger.js';
+import { notifyWeChatWork } from './wechatWorkNotifier.js';
+import { notifyBrowserClients } from './browserNotifier.js';
 
 /**
  * 处理 webhook 数据
@@ -43,12 +45,25 @@ export const processWebhook = async (webhookData, headers) => {
       await handleGenericEvent(webhookData, eventInfo);
   }
 
-  // TODO: 后续扩展点
-  // - 发送微信服务号通知
-  // - 发送 H5 通知
-  // - 发送邮件通知
-  // - 发送钉钉/企业微信通知
-  // - 触发其他自动化流程
+  // 发送企业微信通知
+  if (process.env.WECHAT_WORK_WEBHOOK_URL) {
+		try {
+			await notifyWeChatWork(webhookData, eventInfo);
+		} catch (error) {
+			logger.error('发送企业微信通知失败', error);
+			// 不阻断主流程，即使通知失败也继续
+		}
+  }
+  
+
+  // 发送浏览器插件通知
+  try {
+    await notifyBrowserClients(webhookData, eventInfo);
+  } catch (error) {
+    logger.error('发送浏览器通知失败', error);
+    // 不阻断主流程，即使通知失败也继续
+  }
+  
 };
 
 /**

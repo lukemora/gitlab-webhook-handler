@@ -42,7 +42,10 @@ async function buildProject() {
       },
       pkg: {
         scripts: ['bundle.js'],
-        assets: ['../env.example']
+        assets: ['../env.example'],
+        // 处理 Express 视图引擎的动态 require 警告
+        // 由于项目不使用视图引擎，这些警告可以安全忽略
+        patches: []
       }
     };
     

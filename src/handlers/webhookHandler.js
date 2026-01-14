@@ -6,6 +6,16 @@ import { processWebhook } from '../services/webhookProcessor.js';
  * 处理来自 GitLab 的 webhook 请求
  */
 export const webhookHandler = async (req, res) => {
+  // 确保响应总是被发送
+  let responseSent = false;
+  
+  const sendResponse = (statusCode, data) => {
+    if (!responseSent) {
+      responseSent = true;
+      res.status(statusCode).json(data);
+    }
+  };
+
   try {
     const webhookData = req.body;
     const headers = req.headers;
@@ -23,24 +33,30 @@ export const webhookHandler = async (req, res) => {
     if (secretToken) {
       const providedToken = headers['x-gitlab-token'];
       if (providedToken !== secretToken) {
-        logger.warn('Webhook secret token mismatch');
-        return res.status(401).json({ error: 'Unauthorized' });
+        logger.warn('Webhook secret token mismatch', {
+          provided: providedToken ? '[REDACTED]' : 'missing',
+          expected: '[REDACTED]'
+        });
+        return sendResponse(401, { error: 'Unauthorized' });
       }
     }
 
-    // 处理 webhook 数据
-    await processWebhook(webhookData, headers);
+    // 处理 webhook 数据（异步处理，不阻塞响应）
+    processWebhook(webhookData, headers).catch((error) => {
+      logger.error('Error in processWebhook (non-blocking):', error);
+      // 不阻断响应，因为响应已经发送
+    });
 
-    // 发送成功响应
-    res.status(200).json({ 
+    // 立即发送成功响应（不等待异步处理完成）
+    sendResponse(200, { 
       success: true, 
-      message: 'Webhook processed successfully',
+      message: 'Webhook received and processing',
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
     logger.error('Error processing webhook:', error);
-    res.status(500).json({ 
+    sendResponse(500, { 
       error: 'Internal Server Error',
       message: error.message 
     });
