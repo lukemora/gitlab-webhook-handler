@@ -7,6 +7,7 @@ const defaultConfig = {
   serverUrl: 'http://localhost:33333',
   userId: '',
   userName: '',
+  gitlabBaseUrl: '',
 };
 
 // 加载配置
@@ -18,6 +19,7 @@ async function loadConfig() {
     document.getElementById('serverUrl').value = config.serverUrl || '';
     document.getElementById('userId').value = config.userId || '';
     document.getElementById('userName').value = config.userName || '';
+    document.getElementById('gitlabBaseUrl').value = config.gitlabBaseUrl || '';
   } catch (error) {
     console.error('加载配置失败:', error);
     showStatus('加载配置失败', 'error');
@@ -30,6 +32,7 @@ async function saveConfig() {
     serverUrl: document.getElementById('serverUrl').value.trim(),
     userId: document.getElementById('userId').value.trim(),
     userName: document.getElementById('userName').value.trim(),
+    gitlabBaseUrl: document.getElementById('gitlabBaseUrl').value.trim(),
   };
 
   // 验证必填项
@@ -89,6 +92,7 @@ async function testConnection() {
         userId: userId,
         userName: document.getElementById('userName').value.trim(),
         userAgent: navigator.userAgent,
+        gitlabBaseUrl: document.getElementById('gitlabBaseUrl').value.trim() || undefined,
         timestamp: new Date().toISOString(),
       }),
     });

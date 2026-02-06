@@ -13,38 +13,51 @@ class ClientManager {
   }
 
   /**
-   * 注册客户端
+   * 注册客户端（可选 gitlabBaseUrl：插件上报的「浏览器访问 GitLab 的 base URL」，用于解析内网链接）
    */
-  registerClient(userId, userName, userAgent) {
+  registerClient(userId, userName, userAgent, gitlabBaseUrl) {
     if (!userId) {
       throw new Error('用户ID不能为空');
     }
 
+    const baseUrl = normalizeGitlabBaseUrl(gitlabBaseUrl);
     // 存储客户端信息
     this.clientInfo.set(userId, {
       userName: userName || userId,
       userAgent,
+      gitlabBaseUrl: baseUrl,
       connectedAt: new Date().toISOString(),
       lastSeen: new Date().toISOString(),
     });
 
-    logger.info('客户端已注册', { userId, userName });
+    logger.info('客户端已注册', { userId, userName, hasGitlabBaseUrl: !!baseUrl });
     return { success: true, userId };
   }
 
   /**
-   * 添加客户端连接（SSE）
+   * 添加客户端连接（SSE）。可选 gitlabBaseUrl 查询参数，用于更新该客户端的 GitLab 基地址。
    */
-  addClientConnection(userId, res) {
+  addClientConnection(userId, res, gitlabBaseUrl) {
     if (!this.clients.has(userId)) {
       this.clients.set(userId, new Set());
     }
 
     this.clients.get(userId).add(res);
 
-    // 更新最后活跃时间
-    if (this.clientInfo.has(userId)) {
-      this.clientInfo.get(userId).lastSeen = new Date().toISOString();
+    const baseUrl = normalizeGitlabBaseUrl(gitlabBaseUrl);
+    let info = this.clientInfo.get(userId);
+    if (info) {
+      info.lastSeen = new Date().toISOString();
+      if (baseUrl) info.gitlabBaseUrl = baseUrl;
+    } else if (baseUrl) {
+      // 仅 SSE 连接未先注册时，也存一份以便 getAnyClientGitlabBaseUrl 可用
+      this.clientInfo.set(userId, {
+        userName: userId,
+        userAgent: '',
+        gitlabBaseUrl: baseUrl,
+        connectedAt: new Date().toISOString(),
+        lastSeen: new Date().toISOString(),
+      });
     }
 
     logger.info('客户端连接已添加', { userId, totalConnections: this.clients.get(userId).size });
@@ -163,6 +176,27 @@ class ClientManager {
       totalConnections: Array.from(this.clients.values()).reduce((sum, set) => sum + set.size, 0),
     };
   }
+
+  /**
+   * 从已连接客户端中取任意一个上报的 GitLab 基地址（用于解析内网链接，如 gitlab-0）
+   */
+  getAnyClientGitlabBaseUrl() {
+    for (const [userId, connections] of this.clients) {
+      if (connections.size === 0) continue;
+      const info = this.clientInfo.get(userId);
+      if (info?.gitlabBaseUrl) return info.gitlabBaseUrl;
+    }
+    return '';
+  }
+}
+
+/**
+ * 规范化 GitLab base URL（去尾斜杠、空串视为未设置）
+ */
+function normalizeGitlabBaseUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  const trimmed = url.trim().replace(/\/$/, '');
+  return trimmed || '';
 }
 
 // 单例模式

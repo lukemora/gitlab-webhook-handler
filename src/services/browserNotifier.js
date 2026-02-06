@@ -2,23 +2,51 @@ import { logger } from '../utils/logger.js';
 import { clientManager } from './clientManager.js';
 
 /**
+ * 用 GitLab 实例 base URL 解析链接（payload 可能为内网地址如 http://gitlab-0 或 gitlab-0/path）
+ * 当 payload 为无协议 path（如 gitlab-0/cmgii-cct/...）时，按 path 与 base 拼接
+ */
+function resolveUrlWithInstance(url, gitlabInstance) {
+	if (!url || typeof url !== 'string') return url || '';
+	if (!gitlabInstance) return url;
+	try {
+		// 已是完整 http(s) URL：只保留 path + search + hash，用 base 替换 origin
+		if (url.startsWith('http://') || url.startsWith('https://')) {
+			const parsed = new URL(url);
+			return gitlabInstance + parsed.pathname + parsed.search + parsed.hash;
+		}
+		// 无协议（如 gitlab-0/cmgii-cct/...）：当作 path 与 base 拼接
+		const path = url.startsWith('/') ? url : `/${url}`;
+		return gitlabInstance + path;
+	} catch {
+		return url;
+	}
+}
+
+/**
  * 向浏览器插件客户端发送通知
  */
 export const notifyBrowserClients = async (webhookData, eventInfo) => {
+	const { gitlabInstance } = eventInfo || {};
+
 	try {
-		// 流水线事件：拼出完整 GitLab URL（避免 object_attributes.url 为相对路径）
+		// 流水线事件：拼出完整 GitLab URL，优先用 X-Gitlab-Instance 作为 base（webhook 自带）
 		const pipelineData =
 			eventInfo.eventType === 'Pipeline Hook'
 				? (() => {
 						const attrs = webhookData.object_attributes || {};
-						const projectWebUrl = webhookData.project?.web_url || '';
+						const rawProjectWebUrl = webhookData.project?.web_url || '';
+						const projectWebUrl = resolveUrlWithInstance(
+							rawProjectWebUrl,
+							gitlabInstance
+						);
 						const pipelineId = attrs.id;
-						const fullPipelineUrl =
+						let fullPipelineUrl =
 							typeof attrs.web_url === 'string' && attrs.web_url.startsWith('http')
 								? attrs.web_url
 								: projectWebUrl && pipelineId
-								? `${projectWebUrl.replace(/\/$/, '')}/-/pipelines/${pipelineId}`
-								: attrs.web_url || attrs.url || '';
+									? `${projectWebUrl.replace(/\/$/, '')}/-/pipelines/${pipelineId}`
+									: attrs.web_url || attrs.url || '';
+						fullPipelineUrl = resolveUrlWithInstance(fullPipelineUrl, gitlabInstance);
 						return {
 							status: attrs.status,
 							stage: attrs.stage,
@@ -28,7 +56,7 @@ export const notifyBrowserClients = async (webhookData, eventInfo) => {
 							webUrl: fullPipelineUrl,
 							projectWebUrl,
 						};
-				  })()
+					})()
 				: null;
 
 		// 构建通知消息
@@ -49,8 +77,11 @@ export const notifyBrowserClients = async (webhookData, eventInfo) => {
 					title: webhookData.object_attributes?.title,
 					sourceBranch: webhookData.object_attributes?.source_branch,
 					targetBranch: webhookData.object_attributes?.target_branch,
-					url: webhookData.object_attributes?.url,
-					webUrl: webhookData.object_attributes?.web_url,
+					url: resolveUrlWithInstance(webhookData.object_attributes?.url, gitlabInstance),
+					webUrl: resolveUrlWithInstance(
+						webhookData.object_attributes?.web_url,
+						gitlabInstance
+					),
 				}),
 				...(pipelineData && { ...pipelineData }),
 			},

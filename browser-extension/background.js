@@ -8,6 +8,7 @@ const DEFAULT_CONFIG = {
 	serverUrl: 'http://localhost:33333',
 	userId: '',
 	userName: '',
+	gitlabBaseUrl: '',
 };
 
 // 存储配置
@@ -64,7 +65,9 @@ async function connectToServer() {
 	// 确保先注册用户
 	await registerUser();
 
-	const url = `${config.serverUrl}/events?userId=${encodeURIComponent(config.userId)}`;
+	const params = new URLSearchParams({ userId: config.userId });
+	if (config.gitlabBaseUrl) params.set('gitlabBaseUrl', config.gitlabBaseUrl);
+	const url = `${config.serverUrl}/events?${params.toString()}`;
 	console.log('正在连接到服务器:', url);
 
 	try {
@@ -586,6 +589,7 @@ async function registerUser() {
 				userId: config.userId,
 				userName: config.userName,
 				userAgent: navigator.userAgent,
+				gitlabBaseUrl: config.gitlabBaseUrl || undefined,
 				timestamp: new Date().toISOString(),
 			}),
 		});

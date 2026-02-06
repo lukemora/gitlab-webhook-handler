@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -197,6 +198,7 @@
     }
   </style>
 </head>
+
 <body>
   <div class="container">
     <div class="header">
@@ -224,6 +226,12 @@
           <div class="label-hint">您的显示名称（可选）</div>
         </div>
 
+        <div class="form-group">
+          <label for="gitlabBaseUrl">GitLab 地址（可选）</label>
+          <input type="url" id="gitlabBaseUrl" placeholder="https://xxx.xx.x.xxx:xxxxx">
+          <div class="label-hint">您从浏览器访问 GitLab 的地址；内网部署时填此项，通知中的流水线等链接才能正确打开</div>
+        </div>
+
         <div class="button-group">
           <button type="submit" class="btn-primary">💾 保存配置</button>
           <button type="button" class="btn-secondary" id="testBtn">🔌 测试连接</button>
@@ -242,4 +250,5 @@
   <script src="config.js"></script>
   <script src="options.js"></script>
 </body>
+
 </html>

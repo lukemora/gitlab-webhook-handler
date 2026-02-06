@@ -10,4 +10,5 @@ const DEFAULT_CONFIG = {
   serverUrl: 'http://localhost:33333',
   userId: '',
   userName: '',
+  gitlabBaseUrl: '', // 浏览器访问 GitLab 的地址（如 https://172.24.7.129:30002），用于内网时解析通知链接
 };

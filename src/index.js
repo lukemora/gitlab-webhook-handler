@@ -51,11 +51,11 @@ app.get('/health', (req, res) => {
 	res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// 客户端注册端点
+// 客户端注册端点（可选 body.gitlabBaseUrl：插件上报的「浏览器访问 GitLab 的 base URL」）
 app.post('/api/clients/register', (req, res) => {
 	try {
-		const { userId, userName, userAgent } = req.body;
-		const result = clientManager.registerClient(userId, userName, userAgent);
+		const { userId, userName, userAgent, gitlabBaseUrl } = req.body;
+		const result = clientManager.registerClient(userId, userName, userAgent, gitlabBaseUrl);
 		res.json(result);
 	} catch (error) {
 		logger.error('客户端注册失败', error);
@@ -63,9 +63,10 @@ app.post('/api/clients/register', (req, res) => {
 	}
 });
 
-// SSE 事件流端点（用于浏览器插件连接）
+// SSE 事件流端点（用于浏览器插件连接；可选查询参数 gitlabBaseUrl）
 app.get('/events', (req, res) => {
 	const userId = req.query.userId;
+	const gitlabBaseUrl = req.query.gitlabBaseUrl;
 
 	if (!userId) {
 		return res.status(400).json({ error: 'userId is required' });
@@ -76,8 +77,8 @@ app.get('/events', (req, res) => {
 	res.setHeader('Cache-Control', 'no-cache');
 	res.setHeader('Connection', 'keep-alive');
 
-	// 添加客户端连接
-	clientManager.addClientConnection(userId, res);
+	// 添加客户端连接（传入插件上报的 gitlabBaseUrl，用于解析内网链接）
+	clientManager.addClientConnection(userId, res, gitlabBaseUrl);
 
 	// 定期发送心跳（保持连接活跃）
 	const heartbeatInterval = setInterval(() => {

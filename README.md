@@ -394,6 +394,8 @@ curl http://localhost:33333/api/clients
 | `LOG_LEVEL`               | 日志级别                | 否   | `info`                       |
 | `WECHAT_WORK_WEBHOOK_URL` | 企业微信机器人 URL      | 否   | 无（不发送）                 |
 
+当 GitLab 在内网（如 K8s 内 `gitlab-0`）时，webhook 里的链接可能是内网地址。可在**浏览器插件配置**中填写「GitLab 地址」，插件会将该可访问的 base URL 上报给服务端，通知中的链接将据此替换，无需在服务器上配置环境变量。
+
 ### 浏览器通知“目标用户”规则（重要）
 
 为避免“配置过插件的人都会收到通知”，服务端会优先从 GitLab webhook 内容中推导本次事件的**相关人**作为目标用户（与插件配置的 `userId` 对应，通常是 GitLab 用户 ID）：
